@@ -1,0 +1,36 @@
+---
+
+- name: Disk - Get data about disk from vm
+  parted:
+    device: "{{ device }}"
+    unit: "{{ unit }}"
+  register: diskinfo
+
+- name: Disk - Calculate the amount of free space on disk
+  set_fact:
+    freediskspace: "{{ diskinfo.disk.size|int - diskinfo.partitions[-1].end|int }}"
+
+- name: Disk - Set partitions for volume group
+  set_fact:
+    vgpartitions: "{% for partition in diskinfo.partitions %}{% if not loop.first %}{{ device }}{{ partition.num|int }},{% endif %}{% endfor %}{{ device }}{{ diskinfo.partitions[-1].num|int + 1 }}"
+  when:
+    freediskspace|int > 0
+
+- name: Disk - Create new partition on disk if there is free space
+  parted:
+    device: "{{ device }}"
+    number: "{{ diskinfo.partitions[-1].num|int + 1 }}"
+    flags: [ lvm ]
+    state: present
+    part_start: "{{ diskinfo.partitions[-1].end|int - 0 }}{{ unit }}"
+  when:
+    freediskspace|int > 0
+
+- name: Disk - Add partition to volume group
+  lvg:
+    vg: os
+    state: present
+    pvs: "{{ vgpartitions }}"
+  when:
+    freediskspace|int > 0
+
